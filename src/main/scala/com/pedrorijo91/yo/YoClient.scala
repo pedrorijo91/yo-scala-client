@@ -1,125 +1,164 @@
 package com.pedrorijo91.yo
 
-import java.util.concurrent.{SynchronousQueue, ThreadPoolExecutor, TimeUnit}
-
 import com.ning.http.client.AsyncHttpClientConfig
-import play.api.libs.json.Json
-import play.api.libs.ws.DefaultWSClientConfig
+import com.pedrorijo91.yo.model.{Account, Location, User}
+import play.api.Logger
+import play.api.http.Status
+import play.api.libs.json.{JsArray, JsValue, Json}
+import play.api.libs.ws.WSResponse
 import play.api.libs.ws.ning.{NingAsyncHttpClientConfigBuilder, NingWSClient}
 import play.utils.UriEncoding
-
 import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
-/*
- TODO
- - v2 OAuth http://docs.justyo.co/v2.0/docs/oauth
- - docs: README, CONTRIBUTING, LICENSE
- - Try/Either
- - refactor
- - codacy/CI
- - tests
- - answers
- - user
- - location
- - accounts http://docs.justyo.co/v2.0/docs/accounts
- */
+class YoClient(private val token: String) {
 
-class YoClient(apiToken: String) {
+  private[this] val requestTimeout = Duration(10, SECONDS)
+  private[this] val errorCode = -1
 
-  private val requestTimeout = Duration(10, SECONDS)
+  def yoAll(link: Option[String] = None): Either[(Int, String), (Boolean, String)] = {
 
-  private val token = apiToken
+    val result = withClient {
+      client =>
 
-  def numberSubscribers: Try[Int] = withClient {
-    client =>
-      val url = s"http://api.justyo.co/subscribers_count/?api_token=$token"
+        val url =
+          s"https://api.justyo.co/yoall/?api_token=$token" +
+            link.map(l => s"&link=$l").getOrElse("")
 
-      val promise = client.url(url).get()
-      val result = Await.result(promise, requestTimeout)
+        val promise = client.url(url).post(Json.obj())
+        Await.result(promise, requestTimeout)
+    }
 
-      (result.json \ "count").toString().toInt
+    val newOnSuccess: JsValue => (Boolean, String) = {
+      json =>
+        val success = (json \ "success").as[Boolean]
+        val yoId = (json \ "yo_id").as[String]
+
+        (success, yoId)
+    }
+
+    dealResponse(result, newOnSuccess)
   }
 
-  def checkUsername(username: String): Try[Boolean] = withClient {
-    client =>
-      val url = s"http://api.justyo.co/check_username/?api_token=$token&username=${username.toUpperCase}"
+  def yo(username: String, link: Option[String] = None, location: Option[Location] = None,
+         text: Option[String] = None): Either[(Int, String), (User, Boolean, String)] = {
 
-      val promise = client.url(url).get
-      val result = Await.result(promise, requestTimeout)
+    val result = withClient {
+      client =>
 
-      (result.json \ "exists").toString().toBoolean
+        val url =
+          s"https://api.justyo.co/yo/?api_token=$token&username=${username.toUpperCase}" +
+            text.map(t => s"&text=${UriEncoding.encodePathSegment(t, "utf-8")}").getOrElse("") +
+            link.map(l => s"&link=$l").getOrElse("") +
+            location.map(loc => s"&location=${loc.value}").getOrElse("")
+
+        val promise = client.url(url).post(Json.obj())
+        Await.result(promise, requestTimeout)
+    }
+
+    val newOnSuccess: JsValue => (User, Boolean, String) = {
+      json =>
+        val user = (json \ "recipient").as[User]
+        val success = (json \ "success").as[Boolean]
+        val yoId = (json \ "yo_id").as[String]
+
+        (user, success, yoId)
+    }
+
+    dealResponse(result, newOnSuccess)
   }
 
-  def accounts() = {
+  def numberSubscribers: Either[(Int, String), Int] = {
 
+    val result = withClient {
+      client =>
+        val url = s"http://api.justyo.co/subscribers_count/?api_token=$token"
+
+        val promise = client.url(url).get
+        Await.result(promise, requestTimeout)
+    }
+
+    val newOnSuccess: JsValue => Int = {
+      json =>
+        (json \ "count").as[Int]
+    }
+
+    dealResponse(result, newOnSuccess)
   }
 
-  def yoAll(link: Option[String] = None) = withClient {
-    client =>
+  def checkUsername(username: String): Either[(Int, String), Boolean] = {
 
-      val url =
-        s"https://api.justyo.co/yoall/?api_token=$token" +
-          link.map(l => s"&link=$l").getOrElse("")
+    val result = withClient {
+      client =>
+        val url = s"http://api.justyo.co/check_username/?api_token=$token&username=${username.toUpperCase}"
 
-      val promise = client.url(url).post(Json.obj())
-      val result = Await.result(promise, requestTimeout)
+        val promise = client.url(url).get
+        Await.result(promise, requestTimeout)
+    }
 
-      // response example
-      """
-        |{
-        | "success":true,
-        | "yo_id":"568969297caba7002cabe14a"
-        |}
-      """.stripMargin
+    val newOnSuccess: JsValue => Boolean = {
+      json =>
+        (json \ "exists").as[Boolean]
+    }
 
-      result.json
+    dealResponse(result, newOnSuccess)
   }
 
-  def yo(username: String, link: Option[String] = None, location: Option[String] = None, text: Option[String] = None) = withClient {
-    client =>
 
-      assert(link.isEmpty || location.isEmpty, "can only send link OR location but not both. more info at http://docs.justyo.co/v2.0/docs/yo")
+  def accounts(username: String, password: Option[String] = None, callbackUrl: Option[String] = None,
+               email: Option[String] = None, description: Option[String] = None,
+               needsLocation: Option[Boolean] = None, welcomeLink: Option[String] = None): Either[(Int, String), Account] = {
 
-      val url =
-        s"https://api.justyo.co/yo/?api_token=$token&username=${username.toUpperCase}" +
-          text.map(t => s"&text=${UriEncoding.encodePathSegment(t, "utf-8")}").getOrElse("") +
-          link.map(l => s"&link=$l").getOrElse("") +
-          location.map(loc => s"&location=$loc").getOrElse("") // http://dateandtime.info/pt/citycoordinates.php?id=2267057
+    val result = withClient {
+      client =>
+        val url = s"https://api.justyo.co/accounts/?api_token=$token&username=${username.toUpperCase}" +
+          password.map(p => s"&password=$p").getOrElse("") +
+          callbackUrl.map(c => s"&callback_url=$c").getOrElse("") +
+          email.map(e => s"&email=$e").getOrElse("") +
+          description.map(d => s"&description=$d").getOrElse("") +
+          needsLocation.map(loc => s"&needs_location=$loc").getOrElse("") +
+          welcomeLink.map(l => s"&welcome_link=$l").getOrElse("")
 
-      val promise = client.url(url).post(Json.obj())
-      val result = Await.result(promise, requestTimeout)
+        val promise = client.url(url).post(Json.obj())
+        Await.result(promise, requestTimeout)
+    }
 
-      // response example
-      """
-        |{
-        | "recipient":
-        | {
-        |   "display_name":"Pedro R.",
-        |   "first_name":"Pedro",
-        |   "is_api_user":false,
-        |   "is_subscribable":false,
-        |   "last_name":"Rijo",
-        |   "name":"Pedro Rijo",
-        |   "photo":"https://s3.amazonaws.com/yoapp-images/553265097643480027317b68036d5393.jpg",
-        |   "type":"user",
-        |   "user_id":"553265097643480027317b68",
-        |   "username":"PEDRORIJO91",
-        |   "yo_count":140
-        | },
-        | "success":true,
-        | "yo_id":"5689682c5f222d002972faa1"
-        |}
-      """.stripMargin
+    val newOnSuccess: JsValue => Account = {
+      json =>
+        json.as[Account]
+    }
 
-      result.json
+    val onError: JsValue => String = {
+      json =>
+        val error = (json \ "error").as[String]
+
+        val welcomeLinkErrors = (json \ "payload")
+          .asOpt[JsValue]
+          .map(_ \ "welcome_link")
+          .flatMap(_.toOption.map(_.as[JsArray].value.map(_.as[String])))
+          .getOrElse(Seq.empty)
+          .map("Welcome link error: " + _)
+
+        val userNameErrors = (json \ "payload")
+          .asOpt[JsValue]
+          .map(_ \ "username")
+          .flatMap(_.toOption.map(_.as[JsArray].value.map(_.as[String])))
+          .getOrElse(Seq.empty)
+          .map("Username error: " + _)
+
+        val otherErrors = welcomeLinkErrors ++ userNameErrors
+
+        error + (if (otherErrors.nonEmpty) s" : ${otherErrors.mkString(", ")}" else "")
+    }
+
+    dealResponse(result, newOnSuccess, onError = onError, expectedStatus = Status.CREATED)
   }
 
-  private def withClient[T](block: NingWSClient => T): Try[T] = {
-    val config = new NingAsyncHttpClientConfigBuilder(DefaultWSClientConfig()).build()
+  private[this] def withClient(block: NingWSClient => WSResponse): Try[WSResponse] = {
+    val config = new NingAsyncHttpClientConfigBuilder().build()
     val clientConfig = new AsyncHttpClientConfig.Builder(config)
-      .setExecutorService(new ThreadPoolExecutor(5, 15, 30L, TimeUnit.SECONDS, new SynchronousQueue[Runnable]))
+      // .setExecutorService(new ThreadPoolExecutor(0, 10, 30L, TimeUnit.SECONDS, new LinkedBlockingQueue[Runnable]))
       .build()
     val client = new NingWSClient(clientConfig)
     val result = Try(block(client))
@@ -127,4 +166,29 @@ class YoClient(apiToken: String) {
     result
   }
 
+  private[this] val defaultParseError: (JsValue) => String = (json: JsValue) => (json \ "error").as[String]
+
+  private[this] def dealResponse[A](wSResponse: Try[WSResponse],
+                                    onSuccess: JsValue => A, expectedStatus: Int = Status.OK,
+                                    onError: JsValue => String = defaultParseError): Either[(Int, String), A] = {
+
+    wSResponse match {
+      case Failure(e) =>
+        Logger.error(s"Failure executing request: $e")
+        Left((errorCode, s"Failure executing request: $e"))
+
+      case Success(response) =>
+        Logger.debug(s"Success response: (${response.status}) ${response.json}")
+
+        if (response.status == expectedStatus) {
+          Right(onSuccess(response.json))
+        } else {
+          Logger.warn(s"Request returned with not Ok (${Status.OK}) code: (${response.status}) ${response.json}")
+
+          val errorMessage: String = onError(response.json)
+
+          Left((response.status, errorMessage))
+        }
+    }
+  }
 }
