@@ -1,6 +1,6 @@
 # Yo-scala-client
 
-[![Build Status](https://travis-ci.org/pedrorijo91/yo-scala-client.svg?branch=master)](https://travis-ci.org/pedrorijo91/yo-scala-client) [![Codacy Badge](https://api.codacy.com/project/badge/grade/84d510245e42422c8691aea5f38a73dc)](https://www.codacy.com/app/pedrorijo91/yo-scala-client) [![Codacy Badge](https://api.codacy.com/project/badge/coverage/84d510245e42422c8691aea5f38a73dc)](https://www.codacy.com/app/pedrorijo91/yo-scala-client)
+[![Build Status](https://travis-ci.org/pedrorijo91/yo-scala-client.svg?branch=master)](https://travis-ci.org/pedrorijo91/yo-scala-client)  [![Download](https://api.bintray.com/packages/pedrorijo91/maven/yo-scala-client/images/download.svg)](https://bintray.com/pedrorijo91/maven/yo-scala-client/_latestVersion) [![Codacy Badge](https://api.codacy.com/project/badge/grade/84d510245e42422c8691aea5f38a73dc)](https://www.codacy.com/app/pedrorijo91/yo-scala-client) [![Codacy Badge](https://api.codacy.com/project/badge/coverage/84d510245e42422c8691aea5f38a73dc)](https://www.codacy.com/app/pedrorijo91/yo-scala-client)
 
 ---
 
