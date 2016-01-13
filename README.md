@@ -12,7 +12,15 @@ Currently only supports [API Tokens Endpoints](http://docs.justyo.co/docs/api-to
 
 ### Usage
 
+Add the correct resolver and dependency:
+
 ```
+resolvers += Resolver.jcenterRepo
+
+libraryDependencies ++= Seq("com.pedrorijo91" % "yo-scala-client_2.11" % "1.0.0")
+```
+
+```scala
 val client = new YoClient("<api-token>")
 
 val response = client.numberSubscribers
